@@ -4,114 +4,126 @@ from corpus import CORPUS_A, CORPUS_B
 import time
 
 def normalize(text: str):
-    return sorted(re.findall(r"\b\w+\b", text.lower()))
+    return re.findall(r"\b\w+\b", text)
 
-def tokenize_word(word: str):
-    return list(word) + ["</w>"]
-
-def tokenize_corpus(text):
+def tokenize_corpus(text: str):
     words = normalize(text)
-    return [tokenize_word(w) for w in words]
+    tokens = []
+    for w in words:
+        tokens.extend(w)
+        tokens.append("</w>")
+    return tokens
 
 def detail_corpus(text: str):
     words = normalize(text)
     print("Vocabulario inicial:")
-    print(words)
-    print(f"Cantidad total de palabras: {len(words)}")
+    print(set(words))
+    print(f"Cantidad total de palabras: {len(set(words))}")
 
-def count_pairs(tokenized_words):
-    freqs = pairs_tokens(tokenized_words)
+def count_pairs(tokens):
+    freqs = pairs_tokens(tokens)
     print("Frecuencia de pares de tokens:")
     for (p1, p2), count in freqs.items():
         print(f"('{p1}','{p2}') -> {count}")
 
-def pairs_tokens(tokenized_words):
+def pairs_tokens(tokens):
     freqs = Counter()
-    for word_tokens in tokenized_words:
-        for i in range(len(word_tokens) - 1):
-            pair = (word_tokens[i], word_tokens[i + 1])
-            freqs[pair] += 1
+    for i in range(len(tokens) - 1):
+        if "</w>" in tokens[i]:
+            continue
+        pair = (tokens[i], tokens[i + 1])
+        freqs[pair] += 1
 
     return freqs
 
-def most_frequent_pair(tokenized_words):
-    freqs = pairs_tokens(tokenized_words)
+def most_frequent_pair(tokens):
+    freqs = pairs_tokens(tokens)
     print("Los 10 pares de tokens más frecuentes:")
     for (p1, p2), count in freqs.most_common(10):
         print(f"('{p1}','{p2}') -> {count}")
 
-def merge_most_frequent_pair(tokenized_words):
-    freqs = pairs_tokens(tokenized_words)
+def merge_most_frequent_pair(tokens):
+    freqs = pairs_tokens(tokens)
     if not freqs:
         print("No hay pares de tokens para fusionar.")
-        return tokenized_words, None
+        return tokens, None
     
     (p1, p2), _ = freqs.most_common(1)[0]
-    tokenized_words_merged = merge_pair((p1, p2), tokenized_words)
+    tokens_merged = merge_pair((p1, p2), tokens)
 
     print()
     print(f"El par más frecuente fusionado es: ({p1}{p2})\n")
-    print(f"Corpus antes de la fusión:\n{tokenized_words}\n")
-    print(f"Corpus después de la fusión:\n{tokenized_words_merged}\n")
+    print(f"Corpus antes de la fusión:\n{tokens}\n")
+    print(f"Corpus después de la fusión:\n{tokens_merged}\n")
 
-    return tokenized_words_merged, (p1, p2)
+    return tokens_merged, (p1, p2)
 
-def merge_pair(pair_to_merge, tokenized_words):
+def merge_pair(pair_to_merge, tokens):
     p1, p2 = pair_to_merge
-    new_token = p1 + p2
-    new_tokenized_words = []
-
-    for word_tokens in tokenized_words:
-        new_word = []
-        i = 0
-        while i < len(word_tokens):
-            if i < len(word_tokens) - 1 and word_tokens[i] == p1 and word_tokens[i + 1] == p2:
-                new_word.append(new_token)
-                i += 2
-            else:
-                new_word.append(word_tokens[i])
-                i += 1
-        new_tokenized_words.append(new_word)
-
-    return new_tokenized_words
+    new_tokens = []
+    i = 0
+    
+    while i < len(tokens):
+        if i < len(tokens) - 1 and tokens[i] == p1 and tokens[i + 1] == p2:
+            new_tokens.append(p1 + p2)
+            i += 2
+        else:
+            new_tokens.append(tokens[i])
+            i += 1
+            
+    return new_tokens
 
 def train_bpe(corpus, num_merges):
-    total_tokens = sum(len(word) for word in tokenize_corpus(corpus))
+    total_tokens = len(tokenize_corpus(corpus))
 
     start_time = time.time()
 
-    merges = []
     tokenized_corpus = tokenize_corpus(corpus)
+    corpus = tokenized_corpus
     for i in range(num_merges):
-        tokenized_corpus, best_pair = merge_most_frequent_pair(tokenized_corpus)
-        if best_pair is None:
+        tokenized_corpus, pair = merge_most_frequent_pair(tokenized_corpus)
+        if pair is None:
             print("No se pueden realizar más fusiones.")
             break
-        merges.append(best_pair)
+        p1, p2 = pair
+        corpus.append(p1 + p2)
         print(f"Merge {i + 1}/{num_merges} completado.\n")
 
     elapsed_time = time.time() - start_time
-    
+
     print("Entrenamiento BPE completado.")
     print(f"Tiempo de entrenamiento BPE: {elapsed_time:.2f} segundos")
     print("Cantidad total de tokens inicial:", total_tokens)
-    total_tokens = sum(len(word) for word in tokenized_corpus)
+    total_tokens = len(tokenized_corpus)
     print("Cantidad total de tokens final:", total_tokens)
-    avg_tokens_per_word = total_tokens / len(tokenized_corpus)
+    cant_words = sum(1 for word in tokenized_corpus if word.endswith("</w>"))
+    avg_tokens_per_word = total_tokens / cant_words
     print(f"Cantidad promedio de tokens por palabra: {avg_tokens_per_word:.2f}")
-    vocabulario = set(token for word in tokenized_corpus for token in word)
+    vocabulario = set(tokenized_corpus)
     print("Tamaño del vocabulario final:", len(vocabulario))
 
-    return merges
+    return sorted(set(corpus))
 
-def apply_merges(word: str, merges):
-    tokens = tokenize_corpus(word)
-    for pair in merges:
-        tokens = merge_pair(pair, tokens)
+def apply_tokens(word: str, tokens):
+    tokenized_word = tokenize_corpus(word)
+    cant_tokens = len(tokenized_word)
+    max_len = max(len(token) for token in tokens)
+    result = []
+    i = 0
 
-    print()
-    print(tokens)
-    return tokens
+    while i < cant_tokens:
+        j = min(max_len, cant_tokens - i)
+        while j > 0 and "".join(tokenized_word[i:i + j]) not in tokens:
+            j -= 1
+        
+        if j == 0:
+            result.append(tokenized_word[i])
+            i += 1
+        else:
+            result.append("".join(tokenized_word[i:i + j]))
+            i += j
+
+    return result
     
 def main():
     # "1)"
@@ -135,9 +147,9 @@ def main():
     # train_bpe(CORPUS_A, 20)
     # train_bpe(CORPUS_A, 10)
     "7)"
-    merges = train_bpe(CORPUS_A, 30)
-    print("merges:", merges)
-    apply_merges("perritos", merges)
+    tokens = train_bpe(CORPUS_A, 30)
+    print("tokens:", tokens)
+    print("tokens aplicados:", apply_tokens("perritos y gato", tokens))
 
 if __name__ == "__main__":
     main()
